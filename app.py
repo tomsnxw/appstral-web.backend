@@ -12,15 +12,16 @@ from dateutil import tz
 app = Flask(__name__)
 CORS(app)
 
-swe.set_ephe_path(r"C:\appstral-web\appstral-web\backend\ephe")
+script_dir = os.path.dirname(os.path.realpath(__file__))  # Directorio actual del script
+ephe_path = os.path.join(script_dir, "ephe")
+
+print("Usando ephemeris desde:", ephe_path)
+swe.set_ephe_path(ephe_path)
 
 @app.route('/')
 def home():
     return 'Bienvenido a la API de Carta Astral'
 
-@app.before_request
-def configurar_ruta_ephemeris():
-    swe.set_ephe_path(r"C:\appstral-web\appstral-web\backend\ephe")
 
 def decimal_to_degrees_minutes(decimal_degree):
     """Convierte un grado decimal a grados, minutos y segundos."""
