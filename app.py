@@ -281,10 +281,10 @@ def find_sun_repeat(sun_data, year):
 def revolucion_solar():
     # Obtener parámetros
     fecha_param = request.args.get('fecha', default=None)
-    lat = request.args.get('lat', type=float, default=None) 
+    lat = request.args.get('lat', type=float, default=None)
     lon = request.args.get('lon', type=float, default=None)
     lang = request.args.get('lang', default='es')
-    sistema_casas = request.args.get('sistema_casas', 'T') 
+    sistema_casas = request.args.get('sistema_casas', 'T')
     year_param = request.args.get('year_param', type=int, default=None)
 
     # Validaciones básicas
@@ -307,6 +307,9 @@ def revolucion_solar():
     # Calcular el Julian Day
     jd = swe.julday(user_datetime_utc.year, user_datetime_utc.month, user_datetime_utc.day,
                     user_datetime_utc.hour + user_datetime_utc.minute / 60.0 + user_datetime_utc.second / 3600.0)
+
+    fase_lunar = None
+    solar_return_iso = None
 
     if year_param:
         sun_data = get_sun_position(fecha_param.split("T")[0], fecha_param.split("T")[1], "America/Argentina/Buenos_Aires")
