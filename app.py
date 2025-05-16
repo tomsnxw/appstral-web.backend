@@ -22,7 +22,6 @@ swe.set_ephe_path(ephe_path)
 def home():
     return 'Bienvenido a la API de Carta Astral'
 
-
 def decimal_to_degrees_minutes(decimal_degree):
     """Convierte un grado decimal a grados, minutos y segundos."""
     degrees = int(decimal_degree)
