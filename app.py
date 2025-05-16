@@ -43,7 +43,7 @@ PUNTOS_MC_EXTRA = 2.0
 puntos_planetas = {
     "Sol": 5.0,
     "Luna": 5.0,
-    "Mercurio": 3,
+    "Mercurio": 3.0,
     "Venus": 3.0,
     "Marte": 3.0,
     "Júpiter": 2.0,
@@ -146,7 +146,6 @@ def get_houses(jd, latitude, longitude, house_system, lang="es"):
         degree_in_sign = house % 30
         degree, minutes, seconds = decimal_to_degrees_minutes(degree_in_sign)
         signo = signos[sign]
-        # Exclude 'seconds' if not needed in the unpacking loop in calcular_carta
         house_positions.append((i + 1, signo, degree, minutes, house)) # Removed seconds
     return house_positions
 
@@ -276,6 +275,398 @@ def find_sun_repeat(sun_data, year):
         return dt_return.isoformat()
 
     return None
+
+@app.route('/calcular_carta', methods=['POST'])
+def calcular_carta():
+    data = request.json
+
+    fecha_param = data.get('fecha')
+    lat = data.get('lat')
+    lon = data.get('lon')
+    lang = data.get('lang', 'es')
+    sistema_casas = data.get('sistema_casas', 'T')
+
+    if not lat or not lon:
+        return jsonify({"error": "Se requiere latitud y longitud."}), 400
+
+    if fecha_param:
+        try:
+            user_datetime = datetime.fromisoformat(fecha_param)
+        except ValueError:
+            return jsonify({"error": "Formato de fecha inválido. Use 'YYYY-MM-DDTHH:MM:SS'"}), 400
+    else:
+        user_datetime = datetime.now()
+
+    timezone = get_timezone(lat, lon)
+    user_datetime_utc = timezone.localize(user_datetime).astimezone(pytz.utc)
+
+    jd = swe.julday(user_datetime_utc.year, user_datetime_utc.month, user_datetime_utc.day,
+                    user_datetime_utc.hour + user_datetime_utc.minute / 60.0 + user_datetime_utc.second / 3600.0)
+
+    luna_pos = swe.calc_ut(jd, swe.MOON)[0][0]
+    sol_pos = swe.calc_ut(jd, swe.SUN)[0][0]
+
+    fase_lunar_grados = (luna_pos - sol_pos) % 360
+
+    # Lunar phase translation (consider adding a dictionary for different languages if needed)
+    if lang == 'es':
+        if 0 <= fase_lunar_grados < 45:
+            fase_lunar = "Luna Nueva"
+        elif 45 <= fase_lunar_grados < 90:
+            fase_lunar = "Luna Creciente"
+        elif 90 <= fase_lunar_grados < 135:
+            fase_lunar = "Cuarto Creciente"
+        elif 135 <= fase_lunar_grados < 180:
+            fase_lunar = "Gibosa Creciente"
+        elif 180 <= fase_lunar_grados < 225:
+            fase_lunar = "Luna Llena"
+        elif 225 <= fase_lunar_grados < 270:
+            fase_lunar = "Gibosa Menguante"
+        elif 270 <= fase_lunar_grados < 315:
+            fase_lunar = "Cuarto Menguante"
+        elif 315 <= fase_lunar_grados < 360:
+            fase_lunar = "Luna Menguante"
+        else:
+            fase_lunar = "Luna Nueva"
+    else: # Default to English
+        if 0 <= fase_lunar_grados < 45:
+            fase_lunar = "New Moon"
+        elif 45 <= fase_lunar_grados < 90:
+            fase_lunar = "Waxing Crescent"
+        elif 90 <= fase_lunar_grados < 135:
+            fase_lunar = "First Quarter"
+        elif 135 <= fase_lunar_grados < 180:
+            fase_lunar = "Waxing Gibbous"
+        elif 180 <= fase_lunar_grados < 225:
+            fase_lunar = "Full Moon"
+        elif 225 <= fase_lunar_grados < 270:
+            fase_lunar = "Waning Gibbous"
+        elif 270 <= fase_lunar_grados < 315:
+            fase_lunar = "Last Quarter"
+        elif 315 <= fase_lunar_grados < 360:
+            fase_lunar = "Waning Crescent"
+        else:
+            fase_lunar = "New Moon"
+
+    planet_names_es = {
+        "Sol": swe.SUN, "Luna": swe.MOON, "Mercurio": swe.MERCURY,
+        "Venus": swe.VENUS, "Marte": swe.MARS, "Júpiter": swe.JUPITER,
+        "Saturno": swe.SATURN, "Urano": swe.URANUS, "Neptuno": swe.NEPTUNE,
+        "Plutón": swe.PLUTO, "Lilith": 13, "Quirón": swe.CHIRON, "Nodo Norte": 11,
+    }
+
+    planet_names_en = {
+        "Sun": swe.SUN, "Moon": swe.MOON, "Mercury": swe.MERCURY,
+        "Venus": swe.VENUS, "Mars": swe.MARS, "Jupiter": swe.JUPITER,
+        "Saturn": swe.SATURN, "Uranus": swe.URANUS, "Neptune": swe.NEPTUNE,
+        "Pluto": swe.PLUTO, "Lilith": 13, "Chiron": swe.CHIRON, "North Node": 11,
+    }
+
+    planet_names = planet_names_es if lang == 'es' else planet_names_en
+
+    sistemas_casas = {
+        "P": b'P', "K": b'K', "R": b'R', "C": b'C', "E": b'E',
+        "W": b'W', "T": b'T'
+    }
+
+    house_system = sistemas_casas.get(sistema_casas, b'T')
+
+    planet_positions = {}
+    house_positions = get_houses(jd, lat, lon, house_system, lang)
+
+    ascendente_signo = house_positions[0][1]    # Get the sign of the Ascendant
+    regente_ascendente = regencias_signo_a_planeta.get(ascendente_signo)
+
+    # Inicialización para el balance elemental
+    balance_elemental_puntos = {
+        "Fuego": 0.0,
+        "Tierra": 0.0,
+        "Aire": 0.0,
+        "Agua": 0.0
+    }
+    if lang == 'en': # Adjust keys for English output if lang is 'en'
+        balance_elemental_puntos = {
+            "Fire": 0.0,
+            "Earth": 0.0,
+            "Air": 0.0,
+            "Water": 0.0
+        }
+
+    # Inicialización para el balance rítmico
+    balance_ritmico_puntos = {
+        "Cardinal": 0.0,
+        "Fijo": 0.0,
+        "Mutable": 0.0,
+    }
+    if lang == 'en': # Adjust keys for English output if lang is 'en'
+        balance_ritmico_puntos = {
+            "Cardinal": 0.0,
+            "Fixed": 0.0,
+            "Mutable": 0.0,
+        }
+
+    # Inicialización para el balance de polaridad (Yin-Yang)
+    balance_polaridad_puntos = {
+        "Yin": 0.0,
+        "Yang": 0.0,
+    }
+
+    total_puntos_considerados = 0.0 # Este total se usará para todos los balances
+
+    for planet_name_str, swe_code in planet_names.items():
+        if planet_name_str not in puntos_planetas:
+            puntos = 0.0
+        else:
+            puntos = puntos_planetas[planet_name_str]
+
+        signo, degree, minutes, seconds, longitude, speed, retrograde, estacionario = get_planet_position(jd, swe_code, lang)
+        house = determine_house(longitude, house_positions)
+
+        planet_positions[planet_name_str] = {
+            "signo": signo,
+            "grado": degree,
+            "minutos": minutes,
+            "segundos": seconds,
+            "casa": house,
+            "longitud": longitude,
+            "retrógrado": speed < 0,
+            "estacionario": estacionario
+        }
+
+        # Balance Elemental
+        if lang == 'es':
+            current_sign_map_element = signo_a_elemento
+        else: # English
+            current_sign_map_element = {
+                "Aries": "Fire", "Leo": "Fire", "Sagittarius": "Fire",
+                "Taurus": "Earth", "Virgo": "Earth", "Capricorn": "Earth",
+                "Gemini": "Air", "Libra": "Air", "Aquarius": "Air",
+                "Cancer": "Water", "Scorpio": "Water", "Pisces": "Water",
+            }
+
+        if signo in current_sign_map_element:
+            elemento = current_sign_map_element[signo]
+            balance_elemental_puntos[elemento] += puntos
+
+        # Balance Rítmico
+        if lang == 'es':
+            current_sign_map_rhythm = signo_a_ritmo_es
+        else: # English
+            current_sign_map_rhythm = signo_a_ritmo_en
+
+        if signo in current_sign_map_rhythm:
+            ritmo = current_sign_map_rhythm[signo]
+            balance_ritmico_puntos[ritmo] += puntos
+
+        # Balance de Polaridad (Yin-Yang)
+        if signo in signo_a_yin_yang:
+            polaridad = signo_a_yin_yang[signo]
+            balance_polaridad_puntos[polaridad] += puntos
+
+        total_puntos_considerados += puntos # Se suma una sola vez por cada planeta
+
+    # Puntos extra para Ascendente (Elemental)
+    if lang == 'es':
+        current_ascendant_sign_map_element = signo_a_elemento
+    else: # English
+        current_ascendant_sign_map_element = {
+            "Aries": "Fire", "Taurus": "Earth", "Gemini": "Air", "Cancer": "Water",
+            "Leo": "Fire", "Virgo": "Earth", "Libra": "Air", "Scorpio": "Water",
+            "Sagittarius": "Fire", "Capricorn": "Earth", "Aquarius": "Air", "Pisces": "Water",
+        }
+
+    if ascendente_signo in current_ascendant_sign_map_element:
+        elemento_ascendente = current_ascendant_sign_map_element[ascendente_signo]
+        balance_elemental_puntos[elemento_ascendente] += PUNTOS_ASCENDENTE_EXTRA
+        total_puntos_considerados += PUNTOS_ASCENDENTE_EXTRA # Suma estos puntos al total
+
+    # Puntos extra para Ascendente (Rítmico)
+    if lang == 'es':
+        current_ascendant_sign_map_rhythm = signo_a_ritmo_es
+    else: # English
+        current_ascendant_sign_map_rhythm = signo_a_ritmo_en
+
+    if ascendente_signo in current_ascendant_sign_map_rhythm:
+        ritmo_ascendente = current_ascendant_sign_map_rhythm[ascendente_signo]
+        balance_ritmico_puntos[ritmo_ascendente] += PUNTOS_ASCENDENTE_EXTRA
+        # total_puntos_considerados se suma una vez para el ascendente, ya lo tenemos arriba
+
+    # Puntos extra para Ascendente (Polaridad)
+    if ascendente_signo in signo_a_yin_yang:
+        polaridad_ascendente = signo_a_yin_yang[ascendente_signo]
+        balance_polaridad_puntos[polaridad_ascendente] += PUNTOS_ASCENDENTE_EXTRA
+
+    # Puntos extra para el regente del Ascendente (Elemental)
+    if regente_ascendente and regente_ascendente in planet_names:
+        regente_ascendente_swe_code = planet_names[regente_ascendente]
+        _, _, _, _, regente_ascendente_longitude, _, _, _ = get_planet_position(jd, regente_ascendente_swe_code, lang)
+
+        regente_ascendente_signo_numero = int(regente_ascendente_longitude // 30)
+
+        if lang == 'es':
+            regente_ascendente_signo = signos_es[regente_ascendente_signo_numero]
+            current_sign_map_for_regent_element = signo_a_elemento
+        else:
+            regente_ascendente_signo = signos_en[regente_ascendente_signo_numero] # Ensure English sign is used
+            current_sign_map_for_regent_element = {
+                "Aries": "Fire", "Taurus": "Earth", "Gemini": "Air", "Cancer": "Water",
+                "Leo": "Fire", "Virgo": "Earth", "Libra": "Air", "Scorpio": "Water",
+                "Sagittarius": "Fire", "Capricorn": "Earth", "Aquarius": "Air", "Pisces": "Water",
+            }
+
+        if regente_ascendente_signo in current_sign_map_for_regent_element:
+            elemento_regente_ascendente = current_sign_map_for_regent_element[regente_ascendente_signo]
+            balance_elemental_puntos[elemento_regente_ascendente] += PUNTOS_REGENTE_ASCENDENTE_EXTRA
+            total_puntos_considerados += PUNTOS_REGENTE_ASCENDENTE_EXTRA # Suma estos puntos al total
+
+    # Puntos extra para el regente del Ascendente (Rítmico)
+    if regente_ascendente and regente_ascendente in planet_names:
+        regente_ascendente_swe_code = planet_names[regente_ascendente]
+        _, _, _, _, regente_ascendente_longitude, _, _, _ = get_planet_position(jd, regente_ascendente_swe_code, lang)
+
+        regente_ascendente_signo_numero = int(regente_ascendente_longitude // 30)
+
+        if lang == 'es':
+            regente_ascendente_signo = signos_es[regente_ascendente_signo_numero]
+            current_sign_map_for_regent_rhythm = signo_a_ritmo_es
+        else:
+            regente_ascendente_signo = signos_en[regente_ascendente_signo_numero]
+            current_sign_map_for_regent_rhythm = signo_a_ritmo_en
+
+        if regente_ascendente_signo in current_sign_map_for_regent_rhythm:
+            ritmo_regente_ascendente = current_sign_map_for_regent_rhythm[regente_ascendente_signo]
+            balance_ritmico_puntos[ritmo_regente_ascendente] += PUNTOS_REGENTE_ASCENDENTE_EXTRA
+            # total_puntos_considerados se suma una vez para el regente del ascendente, ya lo tenemos arriba
+
+    # Puntos extra para el regente del Ascendente (Polaridad)
+    if regente_ascendente and regente_ascendente in planet_names:
+        regente_ascendente_swe_code = planet_names[regente_ascendente]
+        _, _, _, _, regente_ascendente_longitude, _, _, _ = get_planet_position(jd, regente_ascendente_swe_code, lang)
+
+        regente_ascendente_signo_numero = int(regente_ascendente_longitude // 30)
+
+        if lang == 'es':
+            regente_ascendente_signo = signos_es[regente_ascendente_signo_numero]
+        else:
+            regente_ascendente_signo = signos_en[regente_ascendente_signo_numero]
+
+        if regente_ascendente_signo in signo_a_yin_yang:
+            polaridad_regente_ascendente = signo_a_yin_yang[regente_ascendente_signo]
+            balance_polaridad_puntos[polaridad_regente_ascendente] += PUNTOS_REGENTE_ASCENDENTE_EXTRA
+
+
+    # Puntos extra para el Medio Cielo (Elemental)
+    mc_signo = None
+    for house_num, signo, degree, minutes, house_longitude in house_positions:
+        if house_num == 10: # Asumiendo que la Casa 10 es el MC
+            mc_signo = signo
+            break
+
+    if mc_signo:
+        if lang == 'es':
+            current_mc_sign_map_element = signo_a_elemento
+        else: # English
+            current_mc_sign_map_element = {
+                "Aries": "Fire", "Taurus": "Earth", "Gemini": "Air", "Cancer": "Water",
+                "Leo": "Fire", "Virgo": "Earth", "Libra": "Air", "Scorpio": "Water",
+                "Sagittarius": "Fire", "Capricorn": "Earth", "Aquarius": "Air", "Pisces": "Water",
+            }
+
+        if mc_signo in current_mc_sign_map_element:
+            elemento_mc = current_mc_sign_map_element[mc_signo]
+            balance_elemental_puntos[elemento_mc] += PUNTOS_MC_EXTRA
+            total_puntos_considerados += PUNTOS_MC_EXTRA # Suma estos puntos al total
+
+    # Puntos extra para el Medio Cielo (Rítmico)
+    if mc_signo:
+        if lang == 'es':
+            current_mc_sign_map_rhythm = signo_a_ritmo_es
+        else: # English
+            current_mc_sign_map_rhythm = signo_a_ritmo_en
+
+        if mc_signo in current_mc_sign_map_rhythm:
+            ritmo_mc = current_mc_sign_map_rhythm[mc_signo]
+            balance_ritmico_puntos[ritmo_mc] += PUNTOS_MC_EXTRA
+            # total_puntos_considerados se suma una vez para el MC, ya lo tenemos arriba
+
+    # Puntos extra para el Medio Cielo (Polaridad)
+    if mc_signo:
+        if mc_signo in signo_a_yin_yang:
+            polaridad_mc = signo_a_yin_yang[mc_signo]
+            balance_polaridad_puntos[polaridad_mc] += PUNTOS_MC_EXTRA
+
+
+    # Cálculo de porcentajes para balance elemental
+    balance_elemental_porcentaje = {
+        "Fuego": 0.0, "Tierra": 0.0, "Aire": 0.0, "Agua": 0.0
+    }
+    if lang == 'en':
+        balance_elemental_porcentaje = {
+            "Fire": 0.0, "Earth": 0.0, "Air": 0.0, "Water": 0.0
+        }
+
+    if total_puntos_considerados > 0:
+        for elemento, puntos_acumulados in balance_elemental_puntos.items():
+            balance_elemental_porcentaje[elemento] = round((puntos_acumulados / total_puntos_considerados) * 100, 1)
+
+    # Cálculo de porcentajes para balance rítmico
+    balance_ritmico_porcentaje = {
+        "Cardinal": 0.0, "Fijo": 0.0, "Mutable": 0.0
+    }
+    if lang == 'en':
+        balance_ritmico_porcentaje = {
+            "Cardinal": 0.0, "Fixed": 0.0, "Mutable": 0.0
+        }
+
+    if total_puntos_considerados > 0:
+        for ritmo, puntos_acumulados in balance_ritmico_puntos.items():
+            balance_ritmico_porcentaje[ritmo] = round((puntos_acumulados / total_puntos_considerados) * 100, 1)
+
+    # Cálculo de porcentajes para balance de polaridad (Yin-Yang)
+    balance_polaridad_porcentaje = {
+        "Yin": 0.0, "Yang": 0.0
+    }
+
+    if total_puntos_considerados > 0:
+        for polaridad, puntos_acumulados in balance_polaridad_puntos.items():
+            balance_polaridad_porcentaje[polaridad] = round((puntos_acumulados / total_puntos_considerados) * 100, 1)
+
+
+    # House longitudes from house_positions (Ascendant is house_positions[0])
+    ascendente_longitude = house_positions[0][4]
+    casa_2_longitude = house_positions[1][4]
+    casa_3_longitude = house_positions[2][4]
+    casa_4_longitude = house_positions[3][4]
+    casa_5_longitude = house_positions[4][4]
+    casa_6_longitude = house_positions[5][4]
+
+    distancia_ascendente_casa2 = ((casa_2_longitude - ascendente_longitude) % 360)
+    distancia_ascendente_casa3 = ((casa_3_longitude - ascendente_longitude) % 360)
+    distancia_ascendente_casa4 = ((casa_4_longitude - ascendente_longitude) % 360)
+    distancia_ascendente_casa5 = ((casa_5_longitude - ascendente_longitude) % 360)
+    distancia_ascendente_casa6 = ((casa_6_longitude - ascendente_longitude) % 360)
+
+    houses = {}
+    for house_num, signo, degree, minutes, house_longitude in house_positions:
+        houses[house_num] = {"signo": signo, "grado": degree, "minutos": minutes, "segundos": seconds}
+
+    return jsonify({
+        "fase_lunar": fase_lunar,
+        "planetas": planet_positions,
+        "casas": houses,
+        "ascendente": ascendente_longitude,
+        "distancia_ascendente_casa2": distancia_ascendente_casa2,
+        "distancia_ascendente_casa3": distancia_ascendente_casa3,
+        "distancia_ascendente_casa4": distancia_ascendente_casa4,
+        "distancia_ascendente_casa5": distancia_ascendente_casa5,
+        "distancia_ascendente_casa6": distancia_ascendente_casa6,
+        "balance_elemental_porcentaje": balance_elemental_porcentaje,
+        "balance_elemental_puntos": balance_elemental_puntos,
+        "balance_ritmico_porcentaje": balance_ritmico_porcentaje,
+        "balance_ritmico_puntos": balance_ritmico_puntos,
+        "balance_polaridad_porcentaje": balance_polaridad_porcentaje,
+        "balance_polaridad_puntos": balance_polaridad_puntos,
+    })
 
 @app.route('/revolucion_solar', methods=['GET'])
 def revolucion_solar():
@@ -648,7 +1039,7 @@ def revolucion_solar():
 
     if total_puntos_considerados > 0:
         for elemento, puntos_acumulados in balance_elemental_puntos.items():
-            balance_elemental_porcentaje[elemento] = round((puntos_acumulados / total_puntos_considerados) * 100, 2)
+            balance_elemental_porcentaje[elemento] = round((puntos_acumulados / total_puntos_considerados) * 100, 1)
             
     balance_elemental_porcentaje["Total_Puntos_Considerados"] = round(total_puntos_considerados, 2)
 
@@ -664,15 +1055,15 @@ def revolucion_solar():
 
     if total_puntos_considerados > 0:
         for ritmo, puntos_acumulados in balance_ritmico_puntos.items():
-            balance_ritmico_porcentaje[ritmo] = round((puntos_acumulados / total_puntos_considerados) * 100, 2)
+            balance_ritmico_porcentaje[ritmo] = round((puntos_acumulados / total_puntos_considerados) * 100, 1)
 
     # NUEVO: Cálculo de porcentajes para balance Yin/Yang
-    balance_yin_yang_porcentaje = {
+    balance_polaridad_porcentaje = {
         "Yin": 0.0, "Yang": 0.0
     }
     if total_puntos_considerados > 0:
         for tipo, puntos_acumulados in balance_yin_yang_puntos.items():
-            balance_yin_yang_porcentaje[tipo] = round((puntos_acumulados / total_puntos_considerados) * 100, 2)
+            balance_polaridad_porcentaje[tipo] = round((puntos_acumulados / total_puntos_considerados) * 100, 1)
 
 
     # House longitudes from house_positions (Ascendant is house_positions[0])
@@ -708,7 +1099,7 @@ def revolucion_solar():
         "balance_elemental_puntos": balance_elemental_puntos,
         "balance_ritmico_porcentaje": balance_ritmico_porcentaje,
         "balance_ritmico_puntos": balance_ritmico_puntos,
-        "balance_yin_yang_porcentaje": balance_yin_yang_porcentaje, # NUEVO
+        "balance_polaridad_porcentaje": balance_polaridad_porcentaje, # NUEVO
         "balance_yin_yang_puntos": balance_yin_yang_puntos # NUEVO
     })
 
@@ -1181,379 +1572,7 @@ def mi_carta():
         
     })
 
-@app.route('/calcular_carta', methods=['POST'])
-def calcular_carta():
-    data = request.json
 
-    fecha_param = data.get('fecha')
-    lat = data.get('lat')
-    lon = data.get('lon')
-    lang = data.get('lang', 'es')
-    sistema_casas = data.get('sistema_casas', 'T')
-
-    if not lat or not lon:
-        return jsonify({"error": "Se requiere latitud y longitud."}), 400
-
-    if fecha_param:
-        try:
-            user_datetime = datetime.fromisoformat(fecha_param)
-        except ValueError:
-            return jsonify({"error": "Formato de fecha inválido. Use 'YYYY-MM-DDTHH:MM:SS'"}), 400
-    else:
-        user_datetime = datetime.now()
-
-    timezone = get_timezone(lat, lon)
-    user_datetime_utc = timezone.localize(user_datetime).astimezone(pytz.utc)
-
-    jd = swe.julday(user_datetime_utc.year, user_datetime_utc.month, user_datetime_utc.day,
-                    user_datetime_utc.hour + user_datetime_utc.minute / 60.0 + user_datetime_utc.second / 3600.0)
-    
-    luna_pos = swe.calc_ut(jd, swe.MOON)[0][0]
-    sol_pos = swe.calc_ut(jd, swe.SUN)[0][0]
-
-    fase_lunar_grados = (luna_pos - sol_pos) % 360
-
-    # Lunar phase translation (consider adding a dictionary for different languages if needed)
-    if lang == 'es':
-        if 0 <= fase_lunar_grados < 45:
-            fase_lunar = "Luna Nueva"
-        elif 45 <= fase_lunar_grados < 90:
-            fase_lunar = "Luna Creciente"
-        elif 90 <= fase_lunar_grados < 135:
-            fase_lunar = "Cuarto Creciente"
-        elif 135 <= fase_lunar_grados < 180:
-            fase_lunar = "Gibosa Creciente"
-        elif 180 <= fase_lunar_grados < 225:
-            fase_lunar = "Luna Llena"
-        elif 225 <= fase_lunar_grados < 270:
-            fase_lunar = "Gibosa Menguante"
-        elif 270 <= fase_lunar_grados < 315:
-            fase_lunar = "Cuarto Menguante"
-        elif 315 <= fase_lunar_grados < 360:
-            fase_lunar = "Luna Menguante"
-        else:
-            fase_lunar = "Luna Nueva"
-    else: # Default to English
-        if 0 <= fase_lunar_grados < 45:
-            fase_lunar = "New Moon"
-        elif 45 <= fase_lunar_grados < 90:
-            fase_lunar = "Waxing Crescent"
-        elif 90 <= fase_lunar_grados < 135:
-            fase_lunar = "First Quarter"
-        elif 135 <= fase_lunar_grados < 180:
-            fase_lunar = "Waxing Gibbous"
-        elif 180 <= fase_lunar_grados < 225:
-            fase_lunar = "Full Moon"
-        elif 225 <= fase_lunar_grados < 270:
-            fase_lunar = "Waning Gibbous"
-        elif 270 <= fase_lunar_grados < 315:
-            fase_lunar = "Last Quarter"
-        elif 315 <= fase_lunar_grados < 360:
-            fase_lunar = "Waning Crescent"
-        else:
-            fase_lunar = "New Moon"
-
-    planet_names_es = {
-        "Sol": swe.SUN, "Luna": swe.MOON, "Mercurio": swe.MERCURY,
-        "Venus": swe.VENUS, "Marte": swe.MARS, "Júpiter": swe.JUPITER,
-        "Saturno": swe.SATURN, "Urano": swe.URANUS, "Neptuno": swe.NEPTUNE,
-        "Plutón": swe.PLUTO, "Lilith": 13, "Quirón": swe.CHIRON, "Nodo Norte": 11,
-    }
-
-    planet_names_en = {
-        "Sun": swe.SUN, "Moon": swe.MOON, "Mercury": swe.MERCURY,
-        "Venus": swe.VENUS, "Mars": swe.MARS, "Jupiter": swe.JUPITER,
-        "Saturn": swe.SATURN, "Uranus": swe.URANUS, "Neptune": swe.NEPTUNE,
-        "Pluto": swe.PLUTO, "Lilith": 13, "Chiron": swe.CHIRON, "North Node": 11,
-    }
-
-    planet_names = planet_names_es if lang == 'es' else planet_names_en
-
-    sistemas_casas = {
-        "P": b'P', "K": b'K', "R": b'R', "C": b'C', "E": b'E',
-        "W": b'W', "T": b'T'
-    }
-
-    house_system = sistemas_casas.get(sistema_casas, b'T')
-
-    planet_positions = {}
-    house_positions = get_houses(jd, lat, lon, house_system, lang)
-    
-    ascendente_signo = house_positions[0][1] 
-    regente_ascendente = regencias_signo_a_planeta.get(ascendente_signo)
-
-    # Inicialización para el balance elemental
-    balance_elemental_puntos = {
-        "Fuego": 0.0,
-        "Tierra": 0.0,
-        "Aire": 0.0,
-        "Agua": 0.0
-    }
-    if lang == 'en': # Adjust keys for English output if lang is 'en'
-        balance_elemental_puntos = {
-            "Fire": 0.0,
-            "Earth": 0.0,
-            "Air": 0.0,
-            "Water": 0.0
-        }
-
-    balance_ritmico_puntos = {}
-    if lang == 'es':
-        balance_ritmico_puntos = {
-            "Cardinal": 0.0,
-            "Fijo": 0.0,
-            "Mutable": 0.0,
-        }
-        current_sign_map_rhythm = signo_a_ritmo_es # Use the Spanish mapping
-    else: # English
-        balance_ritmico_puntos = {
-            "Cardinal": 0.0,
-            "Fixed": 0.0,
-            "Mutable": 0.0,
-        }
-        current_sign_map_rhythm = signo_a_ritmo_en # Use the English mapping
-
-    # NUEVO: Inicialización para el balance Yin/Yang
-    balance_yin_yang_puntos = {
-        "Yin": 0.0,
-        "Yang": 0.0,
-    }
-    # No necesita traducción ya que "Yin" y "Yang" son universales.
-
-    total_puntos_considerados = 0.0 # Este total se usará para todos los balances
-
-    for planet_name_str, swe_code in planet_names.items():
-        if planet_name_str not in puntos_planetas:
-            puntos = 0.0
-        else:
-            puntos = puntos_planetas[planet_name_str]
-            
-        signo, degree, minutes, seconds, longitude, speed, retrograde, estacionario = get_planet_position(jd, swe_code, lang)
-        house = determine_house(longitude, house_positions)
-
-        planet_positions[planet_name_str] = {
-            "signo": signo,
-            "grado": degree,
-            "minutos": minutes,
-            "segundos": seconds,
-            "casa": house,
-            "longitud": longitude,
-            "retrógrado": speed < 0,
-            "estacionario": estacionario
-        }
-        
-        # Balance Elemental
-        if lang == 'es':
-            current_sign_map_element = signo_a_elemento
-        else: # English
-            current_sign_map_element = {
-                "Aries": "Fire", "Leo": "Fire", "Sagittarius": "Fire",
-                "Taurus": "Earth", "Virgo": "Earth", "Capricorn": "Earth",
-                "Gemini": "Air", "Libra": "Air", "Aquarius": "Air",
-                "Cancer": "Water", "Scorpio": "Water", "Pisces": "Water",
-            }
-
-        if signo in current_sign_map_element:
-            elemento = current_sign_map_element[signo]
-            balance_elemental_puntos[elemento] += puntos
-            
-        # Balance Rítmico
-        if signo in current_sign_map_rhythm:
-            ritmo = current_sign_map_rhythm[signo]
-            balance_ritmico_puntos[ritmo] += puntos
-            
-        # NUEVO: Balance Yin/Yang
-        # No necesita comprobación de idioma para el mapeo de signos, ya que signo_a_yin_yang tiene ambas versiones
-        if signo in signo_a_yin_yang:
-            yin_yang_type = signo_a_yin_yang[signo]
-            balance_yin_yang_puntos[yin_yang_type] += puntos
-
-        total_puntos_considerados += puntos # Se suma una sola vez por cada planeta
-
-    # Puntos extra para Ascendente (Elemental)
-    if lang == 'es':
-        current_ascendant_sign_map_element = signo_a_elemento
-    else: # English
-        current_ascendant_sign_map_element = {
-            "Aries": "Fire", "Taurus": "Earth", "Gemini": "Air", "Cancer": "Water",
-            "Leo": "Fire", "Virgo": "Earth", "Libra": "Air", "Scorpio": "Water",
-            "Sagittarius": "Fire", "Capricorn": "Earth", "Aquarius": "Air", "Pisces": "Water",
-        }
-
-    if ascendente_signo in current_ascendant_sign_map_element:
-        elemento_ascendente = current_ascendant_sign_map_element[ascendente_signo]
-        balance_elemental_puntos[elemento_ascendente] += PUNTOS_ASCENDENTE_EXTRA
-        total_puntos_considerados += PUNTOS_ASCENDENTE_EXTRA # Suma estos puntos al total
-
-    # Puntos extra para Ascendente (Rítmico)
-    if lang == 'es':
-        current_ascendant_sign_map_rhythm = signo_a_ritmo_es
-    else: # English
-        current_ascendant_sign_map_rhythm = signo_a_ritmo_en
-
-    if ascendente_signo in current_ascendant_sign_map_rhythm:
-        ritmo_ascendente = current_ascendant_sign_map_rhythm[ascendente_signo]
-        balance_ritmico_puntos[ritmo_ascendente] += PUNTOS_ASCENDENTE_EXTRA
-        # total_puntos_considerados ya fue incrementado por el ascendente_extra
-
-    # NUEVO: Puntos extra para Ascendente (Yin/Yang)
-    if ascendente_signo in signo_a_yin_yang:
-        yin_yang_ascendente = signo_a_yin_yang[ascendente_signo]
-        balance_yin_yang_puntos[yin_yang_ascendente] += PUNTOS_ASCENDENTE_EXTRA
-        # total_puntos_considerados ya fue incrementado por el ascendente_extra
-
-
-    # Puntos extra para el regente del Ascendente (Elemental)
-    if regente_ascendente and regente_ascendente in planet_names:
-        regente_ascendente_swe_code = planet_names[regente_ascendente]
-        _, _, _, _, regente_ascendente_longitude, _, _, _ = get_planet_position(jd, regente_ascendente_swe_code, lang)
-        
-        regente_ascendente_signo_numero = int(regente_ascendente_longitude // 30)
-        
-        if lang == 'es':
-            regente_ascendente_signo = signos_es[regente_ascendente_signo_numero]
-            current_sign_map_for_regent_element = signo_a_elemento
-        else:
-            regente_ascendente_signo = signos_en[regente_ascendente_signo_numero] # Ensure English sign is used
-            current_sign_map_for_regent_element = {
-                "Aries": "Fire", "Taurus": "Earth", "Gemini": "Air", "Cancer": "Water",
-                "Leo": "Fire", "Virgo": "Earth", "Libra": "Air", "Scorpio": "Water",
-                "Sagittarius": "Fire", "Capricorn": "Earth", "Aquarius": "Air", "Pisces": "Water",
-            }
-
-        if regente_ascendente_signo in current_sign_map_for_regent_element:
-            elemento_regente_ascendente = current_sign_map_for_regent_element[regente_ascendente_signo]
-            balance_elemental_puntos[elemento_regente_ascendente] += PUNTOS_REGENTE_ASCENDENTE_EXTRA
-            total_puntos_considerados += PUNTOS_REGENTE_ASCENDENTE_EXTRA # Suma estos puntos al total
-
-        # Puntos extra para el regente del Ascendente (Rítmico)
-    if lang == 'es':
-        current_sign_map_for_regent_rhythm = signo_a_ritmo_es
-    else:
-        current_sign_map_for_regent_rhythm = signo_a_ritmo_en
-        
-        if regente_ascendente_signo in current_sign_map_for_regent_rhythm:
-            ritmo_regente_ascendente = current_sign_map_for_regent_rhythm[regente_ascendente_signo]
-            balance_ritmico_puntos[ritmo_regente_ascendente] += PUNTOS_REGENTE_ASCENDENTE_EXTRA
-            # total_puntos_considerados ya fue incrementado
-
-        # NUEVO: Puntos extra para el regente del Ascendente (Yin/Yang)
-        if regente_ascendente_signo in signo_a_yin_yang:
-            yin_yang_regente_ascendente = signo_a_yin_yang[regente_ascendente_signo]
-            balance_yin_yang_puntos[yin_yang_regente_ascendente] += PUNTOS_REGENTE_ASCENDENTE_EXTRA
-            # total_puntos_considerados ya fue incrementado
-
-    # Puntos extra para el Medio Cielo (Elemental)
-    mc_signo = None
-    for house_num, signo, degree, minutes, house_longitude in house_positions:
-        if house_num == 10: # Asumiendo que la Casa 10 es el MC
-            mc_signo = signo
-            break
-
-    if mc_signo:
-        if lang == 'es':
-            current_mc_sign_map_element = signo_a_elemento
-        else: # English
-            current_mc_sign_map_element = {
-                "Aries": "Fire", "Taurus": "Earth", "Gemini": "Air", "Cancer": "Water",
-                "Leo": "Fire", "Virgo": "Earth", "Libra": "Air", "Scorpio": "Water",
-                "Sagittarius": "Fire", "Capricorn": "Earth", "Aquarius": "Air", "Pisces": "Water",
-            }
-        
-        if mc_signo in current_mc_sign_map_element:
-            elemento_mc = current_mc_sign_map_element[mc_signo]
-            balance_elemental_puntos[elemento_mc] += PUNTOS_MC_EXTRA
-            total_puntos_considerados += PUNTOS_MC_EXTRA # Suma estos puntos al total
-
-        # Puntos extra para el Medio Cielo (Rítmico)
-    if lang == 'es':
-        current_mc_sign_map_rhythm = signo_a_ritmo_es
-    else:
-        current_mc_sign_map_rhythm = signo_a_ritmo_en
-        
-        if mc_signo in current_mc_sign_map_rhythm:
-            ritmo_mc = current_mc_sign_map_rhythm[mc_signo]
-            balance_ritmico_puntos[ritmo_mc] += PUNTOS_MC_EXTRA
-            # total_puntos_considerados ya fue incrementado
-
-        # NUEVO: Puntos extra para el Medio Cielo (Yin/Yang)
-        if mc_signo in signo_a_yin_yang:
-            yin_yang_mc = signo_a_yin_yang[mc_signo]
-            balance_yin_yang_puntos[yin_yang_mc] += PUNTOS_MC_EXTRA
-            # total_puntos_considerados ya fue incrementado
-            
-    # Cálculo de porcentajes para balance elemental
-    balance_elemental_porcentaje = {
-        "Fuego": 0.0, "Tierra": 0.0, "Aire": 0.0, "Agua": 0.0
-    }
-    if lang == 'en':
-        balance_elemental_porcentaje = {
-            "Fire": 0.0, "Earth": 0.0, "Air": 0.0, "Water": 0.0
-        }
-
-    if total_puntos_considerados > 0:
-        for elemento, puntos_acumulados in balance_elemental_puntos.items():
-            balance_elemental_porcentaje[elemento] = round((puntos_acumulados / total_puntos_considerados) * 100, 2)
-            
-    balance_elemental_porcentaje["Total_Puntos_Considerados"] = round(total_puntos_considerados, 2)
-
-    balance_ritmico_porcentaje = {} # Initialize as empty
-    if lang == 'es':
-        balance_ritmico_porcentaje = {
-            "Cardinal": 0.0, "Fijo": 0.0, "Mutable": 0.0
-        }
-    else: # English
-        balance_ritmico_porcentaje = {
-            "Cardinal": 0.0, "Fixed": 0.0, "Mutable": 0.0
-        }
-
-    if total_puntos_considerados > 0:
-        for ritmo, puntos_acumulados in balance_ritmico_puntos.items():
-            balance_ritmico_porcentaje[ritmo] = round((puntos_acumulados / total_puntos_considerados) * 100, 2)
-
-    # NUEVO: Cálculo de porcentajes para balance Yin/Yang
-    balance_yin_yang_porcentaje = {
-        "Yin": 0.0, "Yang": 0.0
-    }
-    if total_puntos_considerados > 0:
-        for tipo, puntos_acumulados in balance_yin_yang_puntos.items():
-            balance_yin_yang_porcentaje[tipo] = round((puntos_acumulados / total_puntos_considerados) * 100, 2)
-
-    # House longitudes from house_positions (Ascendant is house_positions[0])
-    ascendente_longitude = house_positions[0][4]
-    casa_2_longitude = house_positions[1][4]
-    casa_3_longitude = house_positions[2][4]
-    casa_4_longitude = house_positions[3][4]
-    casa_5_longitude = house_positions[4][4]
-    casa_6_longitude = house_positions[5][4]
-
-    distancia_ascendente_casa2 = ((casa_2_longitude - ascendente_longitude) % 360)
-    distancia_ascendente_casa3 = ((casa_3_longitude - ascendente_longitude) % 360)
-    distancia_ascendente_casa4 = ((casa_4_longitude - ascendente_longitude) % 360)
-    distancia_ascendente_casa5 = ((casa_5_longitude - ascendente_longitude) % 360)
-    distancia_ascendente_casa6 = ((casa_6_longitude - ascendente_longitude) % 360)
-    
-    houses = {}
-    for house_num, signo, degree, minutes, house_longitude in house_positions:
-        houses[house_num] = {"signo": signo, "grado": degree, "minutos": minutes, "segundos": seconds}
-
-    return jsonify({
-        "fase_lunar": fase_lunar,
-        "planetas": planet_positions,
-        "casas": houses,
-        "ascendente": ascendente_longitude,
-        "distancia_ascendente_casa2": distancia_ascendente_casa2,
-        "distancia_ascendente_casa3": distancia_ascendente_casa3,
-        "distancia_ascendente_casa4": distancia_ascendente_casa4,
-        "distancia_ascendente_casa5": distancia_ascendente_casa5,
-        "distancia_ascendente_casa6": distancia_ascendente_casa6,
-        "balance_elemental_porcentaje": balance_elemental_porcentaje,
-        "balance_elemental_puntos": balance_elemental_puntos,
-        "balance_ritmico_porcentaje": balance_ritmico_porcentaje,
-        "balance_ritmico_puntos": balance_ritmico_puntos,
-        "balance_yin_yang_porcentaje": balance_yin_yang_porcentaje, # NUEVO
-        "balance_yin_yang_puntos": balance_yin_yang_puntos # NUEVO
-    })
 
 @app.route('/ver_carta', methods=['GET'])
 def  ver_carta():
