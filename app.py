@@ -1943,7 +1943,7 @@ def encontrar_aspecto(planeta1, planeta2, aspecto_str, fecha_inicio, fecha_fin, 
     paso = 1 / 24.0 # Búsqueda por hora inicialmente
     total_steps = int((jd_fin - jd_inicio) / paso) + 1
     encontrados = []
-    angulo_objetivo = ASPECTOS.get(aspecto_str)
+    angulo_objetivo = .get(aspecto_str)
     if angulo_objetivo is None:
         print(f"Aspecto '{aspecto_str}' no reconocido.")
         return encontrados
@@ -1984,9 +1984,12 @@ def encontrar_aspecto(planeta1, planeta2, aspecto_str, fecha_inicio, fecha_fin, 
     return encontrados
 
 ASPECTOS = {
-    "Conjuncion": 0.0,
+    "Conjuncion": 0.5,
+    "Semisextil": 30.0,
+    "Sextil": 60.0,
     "Cuadratura": 90.0,
     "Trigono": 120.0,
+    "Quincuncio": 150.0,
     "Oposicion": 180.0,
 }
 def calcular_diferencia_angular(jd, planeta1, planeta2):
@@ -2001,7 +2004,7 @@ def encontrar_aspecto(planeta1, planeta2, aspecto_str, fecha_inicio, fecha_fin, 
     paso = 1 / 24.0 # Búsqueda por hora inicialmente
     total_steps = int((jd_fin - jd_inicio) / paso) + 1
     encontrados = []
-    angulo_objetivo = ASPECTOS.get(aspecto_str)
+    angulo_objetivo = .get(aspecto_str)
     if angulo_objetivo is None:
         print(f"Aspecto '{aspecto_str}' no reconocido.")
         return encontrados
@@ -2122,7 +2125,7 @@ def buscar_astrologia():
             planeta2_str = planeta2_str.strip().capitalize()
             aspecto_str = aspecto_str.strip().capitalize()
 
-            if planeta1_str not in PLANETAS or planeta2_str not in PLANETAS or aspecto_str not in ASPECTOS:
+            if planeta1_str not in PLANETAS or planeta2_str not in PLANETAS or aspecto_str not in :
                 return jsonify({'error': 'Uno de los planetas o el aspecto no es reconocido'}), 400
 
             planeta1 = PLANETAS[planeta1_str]
