@@ -695,11 +695,8 @@ def revolucion_solar():
     timezone = get_timezone(lat, lon)
     user_datetime_utc = timezone.localize(user_datetime).astimezone(pytz.utc)
 
-    jd_for_calculations = swe.julday(user_datetime_utc.year, user_datetime_utc.month, user_datetime_utc.day,
-                                     user_datetime_utc.hour + user_datetime_utc.minute / 60.0 + user_datetime_utc.second / 3600.0)
-
-    fase_lunar = None
     solar_return_iso = None
+    jd_for_calculations = None # Inicializamos jd para asegurarnos de que siempre esté definido
 
     if year_param:
         sun_data = get_sun_position(fecha_param.split("T")[0], fecha_param.split("T")[1], "America/Argentina/Buenos_Aires")
@@ -708,15 +705,23 @@ def revolucion_solar():
             return jsonify({"error": "No se encontró el momento en el rango establecido."}), 400
 
         exact_datetime = datetime.fromisoformat(solar_return_iso)
-        jd_for_calculations = swe.julday(exact_datetime.year, exact_datetime.month, exact_datetime.day,
-                                         exact_datetime.hour + exact_datetime.minute / 60.0 + exact_datetime.second / 3600.0)
-        user_datetime_utc = exact_datetime # This also needs to be updated if you use it later for anything else
+        # Importante: user_datetime_utc debe ser la fecha de la revolución solar para todos los cálculos subsiguientes
+        user_datetime_utc = exact_datetime.astimezone(pytz.utc) # Asegurarse de que esté en UTC para swe.julday
+        
+        jd_for_calculations = swe.julday(user_datetime_utc.year, user_datetime_utc.month, user_datetime_utc.day,
+                                         user_datetime_utc.hour + user_datetime_utc.minute / 60.0 + user_datetime_utc.second / 3600.0)
+    else:
+        # Si no se proporciona year_param, usamos la fecha original para calcular jd
+        jd_for_calculations = swe.julday(user_datetime_utc.year, user_datetime_utc.month, user_datetime_utc.day,
+                                         user_datetime_utc.hour + user_datetime_utc.minute / 60.0 + user_datetime_utc.second / 3600.0)
 
+    # --- Lógica de la fase lunar para la fecha de la revolución solar ---
     luna_pos = swe.calc_ut(jd_for_calculations, swe.MOON)[0][0]
     sol_pos = swe.calc_ut(jd_for_calculations, swe.SUN)[0][0]
 
     fase_lunar_grados = (luna_pos - sol_pos) % 360
 
+    fase_lunar = ""
     if lang == 'es':
         if 0 <= fase_lunar_grados < 45:
             fase_lunar = "Luna Nueva"
@@ -756,6 +761,7 @@ def revolucion_solar():
         else:
             fase_lunar = "New Moon"
 
+            
     planet_names_es = {
         "Sol": swe.SUN,
         "Luna": swe.MOON,
