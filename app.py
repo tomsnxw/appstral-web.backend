@@ -22,6 +22,7 @@ swe.set_ephe_path(ephe_path)
 def home():
     return 'Bienvenido a la API de Carta Astral'
 
+
 def decimal_to_degrees_minutes(decimal_degree):
     """Convierte un grado decimal a grados, minutos y segundos."""
     degrees = int(decimal_degree)
@@ -276,7 +277,6 @@ def find_sun_repeat(sun_data, year):
 
     return None
 
-
 @app.route('/revolucion_solar', methods=['GET'])
 def revolucion_solar():
     # Obtener parámetros
@@ -300,15 +300,21 @@ def revolucion_solar():
     else:
         user_datetime = datetime.now()
 
-    # Calcular la zona horaria (existing logic)
-    timezone = get_timezone(lat, lon)
+    # Calcular la zona horaria usando timezonefinder
+    timezone_name = tf.timezone_at(lng=lon, lat=lat)
+    if not timezone_name:
+        return jsonify({"error": "No se pudo determinar la zona horaria para las coordenadas proporcionadas."}), 400
+
+    # Calcular la zona horaria para la fecha de entrada (para la localización inicial)
+    timezone = pytz.timezone(timezone_name)
     user_datetime_utc = timezone.localize(user_datetime).astimezone(pytz.utc)
 
     solar_return_iso = None
     jd_for_calculations = None # Inicializamos jd para asegurarnos de que siempre esté definido
 
     if year_param:
-        sun_data = get_sun_position(fecha_param.split("T")[0], fecha_param.split("T")[1], "America/Argentina/Buenos_Aires")
+        # **Usar la zona horaria del usuario aquí también**
+        sun_data = get_sun_position(fecha_param.split("T")[0], fecha_param.split("T")[1], timezone_name)
         solar_return_iso = find_sun_repeat(sun_data, year_param)
         if not solar_return_iso:
             return jsonify({"error": "No se encontró el momento en el rango establecido."}), 400
@@ -316,7 +322,7 @@ def revolucion_solar():
         exact_datetime = datetime.fromisoformat(solar_return_iso)
         # Importante: user_datetime_utc debe ser la fecha de la revolución solar para todos los cálculos subsiguientes
         user_datetime_utc = exact_datetime.astimezone(pytz.utc) # Asegurarse de que esté en UTC para swe.julday
-        
+
         jd_for_calculations = swe.julday(user_datetime_utc.year, user_datetime_utc.month, user_datetime_utc.day,
                                          user_datetime_utc.hour + user_datetime_utc.minute / 60.0 + user_datetime_utc.second / 3600.0)
     else:
@@ -418,7 +424,7 @@ def revolucion_solar():
 
     # Obtener la fecha de la revolución solar si se proporciona el año
     if year_param:
-        sun_data = get_sun_position(fecha_param.split("T")[0], fecha_param.split("T")[1], "America/Argentina/Buenos_Aires")
+        sun_data = get_sun_position(fecha_param.split("T")[0], fecha_param.split("T")[1], timezone_name)
         solar_return_iso = find_sun_repeat(sun_data, year_param)
         if not solar_return_iso:
             return jsonify({"error": "No se encontró el momento en el rango establecido."}), 400
