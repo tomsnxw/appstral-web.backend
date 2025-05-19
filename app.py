@@ -36,10 +36,10 @@ signos_es = ["Aries", "Tauro", "Géminis", "Cáncer", "Leo", "Virgo",
 signos_en = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", 
              "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
 
-PUNTOS_ASCENDENTE_EXTRA = 2.0  # Example value
-PUNTOS_REGENTE_ASCENDENTE_EXTRA = 2.0  # Example value
+PUNTOS_ASCENDENTE_EXTRA = 2.0 
+PUNTOS_REGENTE_ASCENDENTE_EXTRA = 2.0 
 PUNTOS_MC_EXTRA = 2.0
-# Define points for each planet for elemental balance calculation
+
 puntos_planetas = {
     "Sol": 5.0,
     "Luna": 5.0,
@@ -1943,7 +1943,7 @@ def encontrar_aspecto(planeta1, planeta2, aspecto_str, fecha_inicio, fecha_fin, 
     paso = 1 / 24.0 # Búsqueda por hora inicialmente
     total_steps = int((jd_fin - jd_inicio) / paso) + 1
     encontrados = []
-    angulo_objetivo = .get(aspecto_str)
+    angulo_objetivo = ASPECTOS.get(aspecto_str)
     if angulo_objetivo is None:
         print(f"Aspecto '{aspecto_str}' no reconocido.")
         return encontrados
@@ -2004,7 +2004,7 @@ def encontrar_aspecto(planeta1, planeta2, aspecto_str, fecha_inicio, fecha_fin, 
     paso = 1 / 24.0 # Búsqueda por hora inicialmente
     total_steps = int((jd_fin - jd_inicio) / paso) + 1
     encontrados = []
-    angulo_objetivo = .get(aspecto_str)
+    angulo_objetivo = ASPECTOS.get(aspecto_str)
     if angulo_objetivo is None:
         print(f"Aspecto '{aspecto_str}' no reconocido.")
         return encontrados
@@ -2125,7 +2125,7 @@ def buscar_astrologia():
             planeta2_str = planeta2_str.strip().capitalize()
             aspecto_str = aspecto_str.strip().capitalize()
 
-            if planeta1_str not in PLANETAS or planeta2_str not in PLANETAS or aspecto_str not in :
+            if planeta1_str not in PLANETAS or planeta2_str not in PLANETAS or aspecto_str not in ASPECTOS:
                 return jsonify({'error': 'Uno de los planetas o el aspecto no es reconocido'}), 400
 
             planeta1 = PLANETAS[planeta1_str]
