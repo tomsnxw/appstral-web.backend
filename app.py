@@ -691,13 +691,12 @@ def revolucion_solar():
     else:
         user_datetime = datetime.now()
 
-    # Calcular la zona horaria
+    # Calcular la zona horaria (existing logic)
     timezone = get_timezone(lat, lon)
     user_datetime_utc = timezone.localize(user_datetime).astimezone(pytz.utc)
 
-    # Calcular el Julian Day
-    jd = swe.julday(user_datetime_utc.year, user_datetime_utc.month, user_datetime_utc.day,
-                    user_datetime_utc.hour + user_datetime_utc.minute / 60.0 + user_datetime_utc.second / 3600.0)
+    jd_for_calculations = swe.julday(user_datetime_utc.year, user_datetime_utc.month, user_datetime_utc.day,
+                                     user_datetime_utc.hour + user_datetime_utc.minute / 60.0 + user_datetime_utc.second / 3600.0)
 
     fase_lunar = None
     solar_return_iso = None
@@ -709,57 +708,53 @@ def revolucion_solar():
             return jsonify({"error": "No se encontró el momento en el rango establecido."}), 400
 
         exact_datetime = datetime.fromisoformat(solar_return_iso)
-        user_datetime_utc = exact_datetime
+        jd_for_calculations = swe.julday(exact_datetime.year, exact_datetime.month, exact_datetime.day,
+                                         exact_datetime.hour + exact_datetime.minute / 60.0 + exact_datetime.second / 3600.0)
+        user_datetime_utc = exact_datetime # This also needs to be updated if you use it later for anything else
 
-        # Calcular el Julian Day para la revolución solar con la fecha de repetición
-        jd = swe.julday(user_datetime_utc.year, user_datetime_utc.month, user_datetime_utc.day,
-                        user_datetime_utc.hour + user_datetime_utc.minute / 60.0 + user_datetime_utc.second / 3600.0)
+    luna_pos = swe.calc_ut(jd_for_calculations, swe.MOON)[0][0]
+    sol_pos = swe.calc_ut(jd_for_calculations, swe.SUN)[0][0]
 
-        # --- INICIO DEL CÓDIGO PARA LA FASE LUNAR EN REVOLUCIÓN SOLAR ---
-        luna_pos = swe.calc_ut(jd, swe.MOON)[0][0]
-        sol_pos = swe.calc_ut(jd, swe.SUN)[0][0]
+    fase_lunar_grados = (luna_pos - sol_pos) % 360
 
-        fase_lunar_grados = (luna_pos - sol_pos) % 360
-
-        # Traducción de la fase lunar
-        if lang == 'es':
-            if 0 <= fase_lunar_grados < 45:
-                fase_lunar = "Luna Nueva"
-            elif 45 <= fase_lunar_grados < 90:
-                fase_lunar = "Luna Creciente"
-            elif 90 <= fase_lunar_grados < 135:
-                fase_lunar = "Cuarto Creciente"
-            elif 135 <= fase_lunar_grados < 180:
-                fase_lunar = "Gibosa Creciente"
-            elif 180 <= fase_lunar_grados < 225:
-                fase_lunar = "Luna Llena"
-            elif 225 <= fase_lunar_grados < 270:
-                fase_lunar = "Gibosa Menguante"
-            elif 270 <= fase_lunar_grados < 315:
-                fase_lunar = "Cuarto Menguante"
-            elif 315 <= fase_lunar_grados < 360:
-                fase_lunar = "Luna Menguante"
-            else:
-                fase_lunar = "Luna Nueva"
-        else: # Default to English
-            if 0 <= fase_lunar_grados < 45:
-                fase_lunar = "New Moon"
-            elif 45 <= fase_lunar_grados < 90:
-                fase_lunar = "Waxing Crescent"
-            elif 90 <= fase_lunar_grados < 135:
-                fase_lunar = "First Quarter"
-            elif 135 <= fase_lunar_grados < 180:
-                fase_lunar = "Waxing Gibbous"
-            elif 180 <= fase_lunar_grados < 225:
-                fase_lunar = "Full Moon"
-            elif 225 <= fase_lunar_grados < 270:
-                fase_lunar = "Waning Gibbous"
-            elif 270 <= fase_lunar_grados < 315:
-                fase_lunar = "Last Quarter"
-            elif 315 <= fase_lunar_grados < 360:
-                fase_lunar = "Waning Crescent"
-            else:
-                fase_lunar = "New Moon"
+    if lang == 'es':
+        if 0 <= fase_lunar_grados < 45:
+            fase_lunar = "Luna Nueva"
+        elif 45 <= fase_lunar_grados < 90:
+            fase_lunar = "Luna Creciente"
+        elif 90 <= fase_lunar_grados < 135:
+            fase_lunar = "Cuarto Creciente"
+        elif 135 <= fase_lunar_grados < 180:
+            fase_lunar = "Gibosa Creciente"
+        elif 180 <= fase_lunar_grados < 225:
+            fase_lunar = "Luna Llena"
+        elif 225 <= fase_lunar_grados < 270:
+            fase_lunar = "Gibosa Menguante"
+        elif 270 <= fase_lunar_grados < 315:
+            fase_lunar = "Cuarto Menguante"
+        elif 315 <= fase_lunar_grados < 360:
+            fase_lunar = "Luna Menguante"
+        else:
+            fase_lunar = "Luna Nueva"
+    else: # Default to English
+        if 0 <= fase_lunar_grados < 45:
+            fase_lunar = "New Moon"
+        elif 45 <= fase_lunar_grados < 90:
+            fase_lunar = "Waxing Crescent"
+        elif 90 <= fase_lunar_grados < 135:
+            fase_lunar = "First Quarter"
+        elif 135 <= fase_lunar_grados < 180:
+            fase_lunar = "Waxing Gibbous"
+        elif 180 <= fase_lunar_grados < 225:
+            fase_lunar = "Full Moon"
+        elif 225 <= fase_lunar_grados < 270:
+            fase_lunar = "Waning Gibbous"
+        elif 270 <= fase_lunar_grados < 315:
+            fase_lunar = "Last Quarter"
+        elif 315 <= fase_lunar_grados < 360:
+            fase_lunar = "Waning Crescent"
+        else:
+            fase_lunar = "New Moon"
 
     planet_names_es = {
         "Sol": swe.SUN,
@@ -1086,7 +1081,7 @@ def revolucion_solar():
 
     return jsonify({
         "fase_lunar": fase_lunar,
-        "fecha_repeticion": solar_return_iso,  # Fecha y hora de la repetición solar
+        "fecha_repeticion": solar_return_iso,
         "planetas": planet_positions,
         "casas": houses,
         "ascendente": ascendente_longitude,
